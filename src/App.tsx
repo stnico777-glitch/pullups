@@ -3,16 +3,15 @@ import { CameraView } from './components/CameraView'
 import type { PullupPhase } from './lib/pullupCounter'
 import './App.css'
 
-const CHALLENGE_GOAL = 1000
+const GOAL = 1000
 const STORAGE_KEY = 'pullups-challenge-total'
 
 let audioCtx: AudioContext | null = null
 
 function loadTotal(): number {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    const n = raw ? Number(raw) : 0
-    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), CHALLENGE_GOAL) : 0
+    const n = Number(localStorage.getItem(STORAGE_KEY) || 0)
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), GOAL) : 0
   } catch {
     return 0
   }
@@ -22,27 +21,25 @@ function saveTotal(n: number): void {
   try {
     localStorage.setItem(STORAGE_KEY, String(n))
   } catch {
-    // storage optional
+    // ignore
   }
 }
 
 function playRepBeep() {
   try {
     if (!audioCtx) audioCtx = new AudioContext()
-    const ctx = audioCtx
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.type = 'sine'
+    const osc = audioCtx.createOscillator()
+    const gain = audioCtx.createGain()
     osc.frequency.value = 880
     gain.gain.value = 0.08
     osc.connect(gain)
-    gain.connect(ctx.destination)
+    gain.connect(audioCtx.destination)
     osc.start()
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
-    osc.stop(ctx.currentTime + 0.12)
-    void ctx.resume()
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12)
+    osc.stop(audioCtx.currentTime + 0.12)
+    void audioCtx.resume()
   } catch {
-    // audio optional
+    // optional
   }
 }
 
@@ -59,13 +56,15 @@ export default function App() {
   const [resetSignal, setResetSignal] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  const progress = Math.min(reps / CHALLENGE_GOAL, 1)
-  const remaining = Math.max(CHALLENGE_GOAL - reps, 0)
+  const progress = Math.min(reps / GOAL, 1)
+  const remaining = Math.max(GOAL - reps, 0)
 
+  const onPhaseChange = useCallback((p: PullupPhase) => setPhase(p), [])
+  const onError = useCallback((msg: string) => setError(msg), [])
   const onJustCounted = useCallback(() => {
     playRepBeep()
     setReps((n) => {
-      const next = Math.min(n + 1, CHALLENGE_GOAL)
+      const next = Math.min(n + 1, GOAL)
       saveTotal(next)
       return next
     })
@@ -84,10 +83,10 @@ export default function App() {
             tracking runs on your device — video never leaves the browser.
           </p>
           {reps > 0 && (
-            <div className="landing-progress" aria-label={`${reps} of ${CHALLENGE_GOAL}`}>
+            <div className="landing-progress" aria-label={`${reps} of ${GOAL}`}>
               <div className="progress-meta">
                 <span>
-                  {reps.toLocaleString()} / {CHALLENGE_GOAL.toLocaleString()}
+                  {reps.toLocaleString()} / {GOAL.toLocaleString()}
                 </span>
                 <span>{Math.round(progress * 100)}%</span>
               </div>
@@ -108,7 +107,7 @@ export default function App() {
                 if (!audioCtx) audioCtx = new AudioContext()
                 void audioCtx.resume()
               } catch {
-                // audio optional
+                // optional
               }
               setStarted(true)
             }}
@@ -123,13 +122,10 @@ export default function App() {
   return (
     <div className="workout">
       <CameraView
-        onRepsChange={() => {
-          // Challenge total is owned by App + localStorage; ignore session counter absolute value
-        }}
-        onPhaseChange={setPhase}
+        onPhaseChange={onPhaseChange}
         onJustCounted={onJustCounted}
         resetSignal={resetSignal}
-        onError={setError}
+        onError={onError}
       />
 
       <header className="workout-top">
@@ -155,11 +151,11 @@ export default function App() {
           </span>
           <div
             className="progress-wrap"
-            aria-label={`${reps} of ${CHALLENGE_GOAL} pull-ups`}
+            aria-label={`${reps} of ${GOAL} pull-ups`}
           >
             <div className="progress-meta">
               <span>
-                {reps.toLocaleString()} / {CHALLENGE_GOAL.toLocaleString()}
+                {reps.toLocaleString()} / {GOAL.toLocaleString()}
               </span>
               <span>
                 {remaining === 0 ? 'Done' : `${remaining.toLocaleString()} left`}

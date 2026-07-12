@@ -5,15 +5,7 @@
   background: #000;
 }
 
-/* Hidden capture source — canvas is what you see, so the feed never blanks to a blue page bg */
-.camera-video {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
+.camera-video,
 .camera-overlay {
   position: absolute;
   inset: 0;
@@ -21,8 +13,10 @@
   height: 100%;
   object-fit: cover;
   transform: scaleX(-1);
+}
+
+.camera-overlay {
   pointer-events: none;
-  background: #000;
 }
 
 .camera-loading {

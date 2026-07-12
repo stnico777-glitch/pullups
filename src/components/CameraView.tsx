@@ -4,10 +4,9 @@ import { getPoseLandmarker, drawPose } from '../lib/pose'
 import { PullupCounter, type PullupPhase } from '../lib/pullupCounter'
 import './CameraView.css'
 
-const DETECT_INTERVAL_MS = 50 // ~20 FPS inference — enough for reps, cheaper than every frame
+const DETECT_MS = 100 // ~10 FPS pose — enough for reps, ~70% less inference
 
 type Props = {
-  onRepsChange: (reps: number) => void
   onPhaseChange: (phase: PullupPhase) => void
   onJustCounted: () => void
   resetSignal: number
@@ -15,7 +14,6 @@ type Props = {
 }
 
 export function CameraView({
-  onRepsChange,
   onPhaseChange,
   onJustCounted,
   resetSignal,
@@ -25,43 +23,25 @@ export function CameraView({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const counterRef = useRef(new PullupCounter())
   const rafRef = useRef(0)
-  const lastVideoTimeRef = useRef(-1)
-  const lastDetectAtRef = useRef(0)
-  const lastPoseRef = useRef<NormalizedLandmark[] | null>(null)
-  const lastRepsRef = useRef(-1)
-  const lastPhaseRef = useRef<PullupPhase | null>(null)
+  const lastDetectAt = useRef(0)
+  const lastPhase = useRef<PullupPhase | null>(null)
   const [ready, setReady] = useState(false)
 
-  const applyResult = useEffectEvent(
-    (landmarks: NormalizedLandmark[]) => {
-      const result = counterRef.current.update(landmarks)
-
-      if (result.reps !== lastRepsRef.current) {
-        lastRepsRef.current = result.reps
-        onRepsChange(result.reps)
-      }
-      if (result.phase !== lastPhaseRef.current) {
-        lastPhaseRef.current = result.phase
-        onPhaseChange(result.phase)
-      }
-      if (result.justCounted) onJustCounted()
-    },
-  )
-
-  const setPhaseIfChanged = useEffectEvent((phase: PullupPhase) => {
-    if (phase !== lastPhaseRef.current) {
-      lastPhaseRef.current = phase
+  const onFrame = useEffectEvent((pose: NormalizedLandmark[]) => {
+    const { phase, justCounted } = counterRef.current.update(pose)
+    if (phase !== lastPhase.current) {
+      lastPhase.current = phase
       onPhaseChange(phase)
     }
+    if (justCounted) onJustCounted()
   })
 
+  // Only reset when the user hits Reset — never on parent re-renders
   useEffect(() => {
     counterRef.current.reset()
-    lastRepsRef.current = 0
-    lastPhaseRef.current = 'hang'
-    onRepsChange(0)
+    lastPhase.current = 'hang'
     onPhaseChange('hang')
-  }, [resetSignal, onRepsChange, onPhaseChange])
+  }, [resetSignal, onPhaseChange])
 
   useEffect(() => {
     let stream: MediaStream | null = null
@@ -75,9 +55,9 @@ export function CameraView({
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { ideal: 24, max: 30 },
+            width: { ideal: 320 },
+            height: { ideal: 240 },
+            frameRate: { ideal: 15, max: 20 },
           },
           audio: false,
         })
@@ -94,13 +74,20 @@ export function CameraView({
         await video.play()
         setReady(true)
 
-        // Opaque canvas so the navy page background never shows through
-        const ctx = canvas.getContext('2d', { alpha: false })
+        const ctx = canvas.getContext('2d', { alpha: true })
         if (!ctx) return
+
+        let lastTime = -1
 
         const loop = () => {
           rafRef.current = requestAnimationFrame(loop)
           if (video.readyState < 2) return
+
+          const now = performance.now()
+          if (now - lastDetectAt.current < DETECT_MS) return
+          if (video.currentTime === lastTime) return
+          lastTime = video.currentTime
+          lastDetectAt.current = now
 
           const w = video.videoWidth
           const h = video.videoHeight
@@ -111,34 +98,22 @@ export function CameraView({
             canvas.height = h
           }
 
-          // Always paint the camera frame first — never leave a blank/blue screen
-          ctx.drawImage(video, 0, 0, w, h)
-          if (lastPoseRef.current) {
-            drawPose(ctx, lastPoseRef.current)
-          }
-
-          const now = performance.now()
-          if (now - lastDetectAtRef.current < DETECT_INTERVAL_MS) return
-          if (video.currentTime === lastVideoTimeRef.current) return
-          lastVideoTimeRef.current = video.currentTime
-          lastDetectAtRef.current = now
-
           const result = landmarker.detectForVideo(video, now)
-          const pose = result.landmarks[0] ?? null
-          lastPoseRef.current = pose
+          ctx.clearRect(0, 0, w, h)
 
+          const pose = result.landmarks[0]
           if (pose) {
-            applyResult(pose)
-          } else {
-            setPhaseIfChanged('lost')
+            drawPose(ctx, pose)
+            onFrame(pose)
+          } else if (lastPhase.current !== 'lost') {
+            lastPhase.current = 'lost'
+            onPhaseChange('lost')
           }
         }
 
         rafRef.current = requestAnimationFrame(loop)
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : 'Could not access camera'
-        onError(message)
+        onError(err instanceof Error ? err.message : 'Could not access camera')
       }
     }
 
@@ -149,7 +124,7 @@ export function CameraView({
       cancelAnimationFrame(rafRef.current)
       stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [applyResult, onError, setPhaseIfChanged])
+  }, [onError, onFrame, onPhaseChange])
 
   return (
     <div className="camera-stage">

@@ -1,144 +1,97 @@
-export type Landmark = { x: number; y: number; z: number; visibility?: number }
+export type Landmark = { x: number; y: number; z?: number; visibility?: number }
 
 export type PullupPhase = 'hang' | 'pull' | 'lost'
 
 export type PullupResult = {
   phase: PullupPhase
-  reps: number
-  elbowAngle: number
-  chinOverBar: boolean
   justCounted: boolean
 }
 
-// MediaPipe landmark indices
 const NOSE = 0
-const LEFT_SHOULDER = 11
-const RIGHT_SHOULDER = 12
-const LEFT_ELBOW = 13
-const RIGHT_ELBOW = 14
-const LEFT_WRIST = 15
-const RIGHT_WRIST = 16
+const L_SHOULDER = 11
+const R_SHOULDER = 12
+const L_ELBOW = 13
+const R_ELBOW = 14
+const L_WRIST = 15
+const R_WRIST = 16
 
-// Lenient form gates — count partial ROM / imperfect camera angles
-const UP_ELBOW_MAX = 120 // degrees — bent enough at top
-const DOWN_ELBOW_MIN = 125 // degrees — extended enough at hang
-const CHIN_OVER_MARGIN = -0.02 // nose may sit slightly below wrist line
-const MIN_VISIBILITY = 0.3
-const DEBOUNCE_MS = 300
+// Head vs bar (wrists). y grows downward.
+const TOP_OFFSET = 0.04 // nose near / above wrists → top
+const HANG_OFFSET = 0.14 // nose clearly below wrists → hang
+const MIN_VIS = 0.25
+const DEBOUNCE_MS = 350
 
-function angleDeg(a: Landmark, b: Landmark, c: Landmark): number {
-  const abx = a.x - b.x
-  const aby = a.y - b.y
-  const cbx = c.x - b.x
-  const cby = c.y - b.y
-  const dot = abx * cbx + aby * cby
-  const magAB = Math.hypot(abx, aby)
-  const magCB = Math.hypot(cbx, cby)
-  if (magAB === 0 || magCB === 0) return 180
-  const cos = Math.min(1, Math.max(-1, dot / (magAB * magCB)))
+function ok(lm: Landmark | undefined): lm is Landmark {
+  return !!lm && (lm.visibility === undefined || lm.visibility >= MIN_VIS)
+}
+
+function elbowAngle(shoulder: Landmark, elbow: Landmark, wrist: Landmark): number {
+  const abx = shoulder.x - elbow.x
+  const aby = shoulder.y - elbow.y
+  const cbx = wrist.x - elbow.x
+  const cby = wrist.y - elbow.y
+  const den = Math.hypot(abx, aby) * Math.hypot(cbx, cby)
+  if (den === 0) return 180
+  const cos = Math.min(1, Math.max(-1, (abx * cbx + aby * cby) / den))
   return (Math.acos(cos) * 180) / Math.PI
 }
 
-function visible(lm: Landmark | undefined): boolean {
-  if (!lm) return false
-  if (lm.visibility === undefined) return true
-  return lm.visibility >= MIN_VISIBILITY
-}
-
-function armVisible(
-  shoulder: Landmark | undefined,
-  elbow: Landmark | undefined,
-  wrist: Landmark | undefined,
-): boolean {
-  return visible(shoulder) && visible(elbow) && visible(wrist)
-}
-
+/**
+ * Count a rep when you reach the top, then return to a hang.
+ * Primary signal: nose vs wrist height. Elbow bend is a soft assist only.
+ */
 export class PullupCounter {
-  private reps = 0
   private phase: PullupPhase = 'hang'
-  private lastCountAt = 0
   private reachedTop = false
+  private lastCountAt = 0
 
   reset(): void {
-    this.reps = 0
     this.phase = 'hang'
-    this.lastCountAt = 0
     this.reachedTop = false
+    this.lastCountAt = 0
   }
 
-  getReps(): number {
-    return this.reps
-  }
+  update(lm: Landmark[], now = performance.now()): PullupResult {
+    const nose = lm[NOSE]
+    const arms = [
+      [lm[L_SHOULDER], lm[L_ELBOW], lm[L_WRIST]] as const,
+      [lm[R_SHOULDER], lm[R_ELBOW], lm[R_WRIST]] as const,
+    ].filter(([s, e, w]) => ok(s) && ok(e) && ok(w))
 
-  update(landmarks: Landmark[], now = performance.now()): PullupResult {
-    const nose = landmarks[NOSE]
-    const lShoulder = landmarks[LEFT_SHOULDER]
-    const rShoulder = landmarks[RIGHT_SHOULDER]
-    const lElbow = landmarks[LEFT_ELBOW]
-    const rElbow = landmarks[RIGHT_ELBOW]
-    const lWrist = landmarks[LEFT_WRIST]
-    const rWrist = landmarks[RIGHT_WRIST]
-
-    const leftOk = armVisible(lShoulder, lElbow, lWrist)
-    const rightOk = armVisible(rShoulder, rElbow, rWrist)
-
-    if (!visible(nose) || (!leftOk && !rightOk)) {
+    if (!ok(nose) || arms.length === 0) {
       this.phase = 'lost'
-      return {
-        phase: 'lost',
-        reps: this.reps,
-        elbowAngle: 0,
-        chinOverBar: false,
-        justCounted: false,
-      }
+      return { phase: 'lost', justCounted: false }
     }
 
-    const angles: number[] = []
-    const wrists: Landmark[] = []
-    if (leftOk) {
-      angles.push(angleDeg(lShoulder!, lElbow!, lWrist!))
-      wrists.push(lWrist!)
+    let wristY = 0
+    let bent = 180
+    for (const [s, e, w] of arms) {
+      wristY += w!.y
+      bent = Math.min(bent, elbowAngle(s!, e!, w!))
     }
-    if (rightOk) {
-      angles.push(angleDeg(rShoulder!, rElbow!, rWrist!))
-      wrists.push(rWrist!)
-    }
+    wristY /= arms.length
 
-    // Most bent arm for top, most extended for hang — forgives uneven form
-    const bentAngle = Math.min(...angles)
-    const extendedAngle = Math.max(...angles)
-    const elbowAngle = (bentAngle + extendedAngle) / 2
-
-    const wristY = wrists.reduce((sum, w) => sum + w.y, 0) / wrists.length
-    const chinOverBar = nose!.y < wristY - CHIN_OVER_MARGIN
-
-    const atTop = chinOverBar && bentAngle < UP_ELBOW_MAX
-    const atHang = !chinOverBar && extendedAngle > DOWN_ELBOW_MIN
+    // How far the head is below the bar (negative = above bar)
+    const belowBar = nose.y - wristY
+    const atTop = belowBar < TOP_OFFSET || bent < 115
+    const atHang = belowBar > HANG_OFFSET && bent > 135
 
     let justCounted = false
 
     if (atTop) {
-      this.phase = 'pull'
       this.reachedTop = true
+      this.phase = 'pull'
     } else if (atHang) {
       if (this.reachedTop && now - this.lastCountAt > DEBOUNCE_MS) {
-        this.reps += 1
-        this.lastCountAt = now
         this.reachedTop = false
+        this.lastCountAt = now
         justCounted = true
       }
       this.phase = 'hang'
-    } else if (this.phase !== 'lost') {
-      // mid-rep transition — keep current phase label
+    } else {
       this.phase = this.reachedTop ? 'pull' : 'hang'
     }
 
-    return {
-      phase: this.phase,
-      reps: this.reps,
-      elbowAngle,
-      chinOverBar,
-      justCounted,
-    }
+    return { phase: this.phase, justCounted }
   }
 }
