@@ -43,7 +43,8 @@ function playRepBeep() {
   }
 }
 
-function phaseLabel(phase: PullupPhase): string {
+function phaseLabel(phase: PullupPhase, paused: boolean): string {
+  if (paused) return 'Paused'
   if (phase === 'lost') return 'Step into frame'
   if (phase === 'pull') return 'Pull'
   return 'Hang'
@@ -53,6 +54,7 @@ export default function App() {
   const [started, setStarted] = useState(false)
   const [reps, setReps] = useState(loadTotal)
   const [phase, setPhase] = useState<PullupPhase>('hang')
+  const [paused, setPaused] = useState(false)
   const [resetSignal, setResetSignal] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
@@ -125,6 +127,7 @@ export default function App() {
         onPhaseChange={onPhaseChange}
         onJustCounted={onJustCounted}
         resetSignal={resetSignal}
+        paused={paused}
         onError={onError}
       />
 
@@ -135,6 +138,7 @@ export default function App() {
           className="ghost-btn"
           onClick={() => {
             setStarted(false)
+            setPaused(false)
             setPhase('hang')
             setError(null)
           }}
@@ -169,22 +173,40 @@ export default function App() {
             </div>
           </div>
         </div>
-        <div className={`phase-pill phase-${phase}`}>{phaseLabel(phase)}</div>
+        <div
+          className={`phase-pill phase-${paused ? 'paused' : phase}`}
+        >
+          {phaseLabel(phase, paused)}
+        </div>
       </div>
 
       <footer className="workout-bottom">
-        <button
-          type="button"
-          className="ghost-btn"
-          onClick={() => {
-            setReps(0)
-            saveTotal(0)
-            setResetSignal((n) => n + 1)
-          }}
-        >
-          Reset
-        </button>
-        <p className="tip">Keep your head and at least one arm in view</p>
+        <div className="workout-actions">
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => setPaused((p) => !p)}
+          >
+            {paused ? 'Resume' : 'Pause'}
+          </button>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => {
+              setReps(0)
+              saveTotal(0)
+              setPaused(false)
+              setResetSignal((n) => n + 1)
+            }}
+          >
+            Reset
+          </button>
+        </div>
+        <p className="tip">
+          {paused
+            ? 'Counting paused — camera stays on'
+            : 'Keep your head and at least one arm in view'}
+        </p>
       </footer>
 
       {error && (
@@ -198,6 +220,7 @@ export default function App() {
             className="cta cta-compact"
             onClick={() => {
               setError(null)
+              setPaused(false)
               setStarted(false)
             }}
           >

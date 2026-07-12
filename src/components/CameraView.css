@@ -15,6 +15,12 @@
   transform: scaleX(-1);
 }
 
+/* Video is MediaPipe source only — canvas is the visible feed */
+.camera-video {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .camera-overlay {
   pointer-events: none;
 }
