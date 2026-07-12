@@ -1,10 +1,43 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, type CSSProperties, type PointerEvent } from 'react'
 import { CameraView } from './components/CameraView'
 import type { PullupPhase } from './lib/pullupCounter'
 import './App.css'
 
 const GOAL = 1000
 const STORAGE_KEY = 'pullups-challenge-total'
+const HUD_POS_KEY = 'pullups-hud-pos'
+
+type HudPos = { left: number; top: number }
+
+function loadHudPos(): HudPos | null {
+  try {
+    const raw = localStorage.getItem(HUD_POS_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw) as HudPos
+    if (
+      typeof p.left === 'number' &&
+      typeof p.top === 'number' &&
+      Number.isFinite(p.left) &&
+      Number.isFinite(p.top)
+    ) {
+      return {
+        left: Math.min(Math.max(p.left, 0), 100),
+        top: Math.min(Math.max(p.top, 0), 100),
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function saveHudPos(pos: HudPos): void {
+  try {
+    localStorage.setItem(HUD_POS_KEY, JSON.stringify(pos))
+  } catch {
+    // ignore
+  }
+}
 
 let audioCtx: AudioContext | null = null
 
@@ -57,6 +90,17 @@ export default function App() {
   const [paused, setPaused] = useState(false)
   const [resetSignal, setResetSignal] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [hudPos, setHudPos] = useState<HudPos | null>(loadHudPos)
+  const [hudDragging, setHudDragging] = useState(false)
+  const hudRef = useRef<HTMLDivElement>(null)
+  const hudPosRef = useRef<HudPos | null>(hudPos)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originLeft: number
+    originTop: number
+  } | null>(null)
 
   const progress = Math.min(reps / GOAL, 1)
   const remaining = Math.max(GOAL - reps, 0)
@@ -71,6 +115,71 @@ export default function App() {
       return next
     })
   }, [])
+
+  const clampHudPos = useCallback((left: number, top: number): HudPos => {
+    const el = hudRef.current
+    const wPct = el ? (el.offsetWidth / window.innerWidth) * 100 : 30
+    const hPct = el ? (el.offsetHeight / window.innerHeight) * 100 : 30
+    return {
+      left: Math.min(Math.max(left, 0), Math.max(100 - wPct, 0)),
+      top: Math.min(Math.max(top, 0), Math.max(100 - hPct, 0)),
+    }
+  }, [])
+
+  const onHudPointerDown = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return
+      const el = hudRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const originLeft =
+        hudPosRef.current?.left ?? (rect.left / window.innerWidth) * 100
+      const originTop =
+        hudPosRef.current?.top ?? (rect.top / window.innerHeight) * 100
+      const seeded = { left: originLeft, top: originTop }
+      hudPosRef.current = seeded
+      setHudPos(seeded)
+      dragRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        originLeft,
+        originTop,
+      }
+      setHudDragging(true)
+      el.setPointerCapture(e.pointerId)
+    },
+    [],
+  )
+
+  const onHudPointerMove = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      const dx = ((e.clientX - drag.startX) / window.innerWidth) * 100
+      const dy = ((e.clientY - drag.startY) / window.innerHeight) * 100
+      const next = clampHudPos(drag.originLeft + dx, drag.originTop + dy)
+      hudPosRef.current = next
+      setHudPos(next)
+    },
+    [clampHudPos],
+  )
+
+  const onHudPointerUp = useCallback(
+    (e: PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      dragRef.current = null
+      setHudDragging(false)
+      if (hudPosRef.current) saveHudPos(hudPosRef.current)
+      try {
+        hudRef.current?.releasePointerCapture(e.pointerId)
+      } catch {
+        // already released
+      }
+    },
+    [],
+  )
 
   if (!started) {
     return (
@@ -147,7 +256,24 @@ export default function App() {
         </button>
       </header>
 
-      <div className="hud">
+      <div
+        ref={hudRef}
+        className={`hud${hudPos ? ' hud-placed' : ''}${hudDragging ? ' hud-dragging' : ''}`}
+        style={
+          hudPos
+            ? ({
+                '--hud-left': `${hudPos.left}%`,
+                '--hud-top': `${hudPos.top}%`,
+              } as CSSProperties)
+            : undefined
+        }
+        onPointerDown={onHudPointerDown}
+        onPointerMove={onHudPointerMove}
+        onPointerUp={onHudPointerUp}
+        onPointerCancel={onHudPointerUp}
+        role="group"
+        aria-label="Challenge counter — drag to move"
+      >
         <div className="rep-block">
           <span className="rep-label">Challenge</span>
           <span className="rep-count" key={reps}>
