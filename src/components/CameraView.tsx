@@ -4,6 +4,8 @@ import { getPoseLandmarker, drawPose } from '../lib/pose'
 import { PullupCounter, type PullupPhase } from '../lib/pullupCounter'
 import './CameraView.css'
 
+const DETECT_INTERVAL_MS = 50 // ~20 FPS inference — enough for reps, cheaper than every frame
+
 type Props = {
   onRepsChange: (reps: number) => void
   onPhaseChange: (phase: PullupPhase) => void
@@ -24,20 +26,39 @@ export function CameraView({
   const counterRef = useRef(new PullupCounter())
   const rafRef = useRef(0)
   const lastVideoTimeRef = useRef(-1)
+  const lastDetectAtRef = useRef(0)
+  const lastRepsRef = useRef(-1)
+  const lastPhaseRef = useRef<PullupPhase | null>(null)
   const [ready, setReady] = useState(false)
 
   const handleFrame = useEffectEvent(
     (landmarks: NormalizedLandmark[], ctx: CanvasRenderingContext2D) => {
       drawPose(ctx, landmarks)
       const result = counterRef.current.update(landmarks)
-      onRepsChange(result.reps)
-      onPhaseChange(result.phase)
+
+      if (result.reps !== lastRepsRef.current) {
+        lastRepsRef.current = result.reps
+        onRepsChange(result.reps)
+      }
+      if (result.phase !== lastPhaseRef.current) {
+        lastPhaseRef.current = result.phase
+        onPhaseChange(result.phase)
+      }
       if (result.justCounted) onJustCounted()
     },
   )
 
+  const setPhaseIfChanged = useEffectEvent((phase: PullupPhase) => {
+    if (phase !== lastPhaseRef.current) {
+      lastPhaseRef.current = phase
+      onPhaseChange(phase)
+    }
+  })
+
   useEffect(() => {
     counterRef.current.reset()
+    lastRepsRef.current = 0
+    lastPhaseRef.current = 'hang'
     onRepsChange(0)
     onPhaseChange('hang')
   }, [resetSignal, onRepsChange, onPhaseChange])
@@ -54,8 +75,9 @@ export function CameraView({
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 24, max: 30 },
           },
           audio: false,
         })
@@ -72,7 +94,7 @@ export function CameraView({
         await video.play()
         setReady(true)
 
-        const ctx = canvas.getContext('2d')
+        const ctx = canvas.getContext('2d', { alpha: true })
         if (!ctx) return
 
         const loop = () => {
@@ -91,14 +113,18 @@ export function CameraView({
           if (video.currentTime === lastVideoTimeRef.current) return
           lastVideoTimeRef.current = video.currentTime
 
-          const result = landmarker.detectForVideo(video, performance.now())
+          const now = performance.now()
+          if (now - lastDetectAtRef.current < DETECT_INTERVAL_MS) return
+          lastDetectAtRef.current = now
+
+          const result = landmarker.detectForVideo(video, now)
           ctx.clearRect(0, 0, w, h)
 
           const pose = result.landmarks[0]
           if (pose) {
             handleFrame(pose, ctx)
           } else {
-            onPhaseChange('lost')
+            setPhaseIfChanged('lost')
           }
         }
 
@@ -117,7 +143,7 @@ export function CameraView({
       cancelAnimationFrame(rafRef.current)
       stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [handleFrame, onError, onPhaseChange])
+  }, [handleFrame, onError, setPhaseIfChanged])
 
   return (
     <div className="camera-stage">

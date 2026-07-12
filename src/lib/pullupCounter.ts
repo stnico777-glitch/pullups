@@ -19,11 +19,12 @@ const RIGHT_ELBOW = 14
 const LEFT_WRIST = 15
 const RIGHT_WRIST = 16
 
-const UP_ELBOW_MAX = 100 // degrees — bent enough at top
-const DOWN_ELBOW_MIN = 145 // degrees — extended enough at hang
-const CHIN_OVER_MARGIN = 0.02 // nose above wrists (y decreases upward)
-const MIN_VISIBILITY = 0.5
-const DEBOUNCE_MS = 400
+// Lenient form gates — count partial ROM / imperfect camera angles
+const UP_ELBOW_MAX = 120 // degrees — bent enough at top
+const DOWN_ELBOW_MIN = 125 // degrees — extended enough at hang
+const CHIN_OVER_MARGIN = -0.02 // nose may sit slightly below wrist line
+const MIN_VISIBILITY = 0.3
+const DEBOUNCE_MS = 300
 
 function angleDeg(a: Landmark, b: Landmark, c: Landmark): number {
   const abx = a.x - b.x
@@ -42,6 +43,14 @@ function visible(lm: Landmark | undefined): boolean {
   if (!lm) return false
   if (lm.visibility === undefined) return true
   return lm.visibility >= MIN_VISIBILITY
+}
+
+function armVisible(
+  shoulder: Landmark | undefined,
+  elbow: Landmark | undefined,
+  wrist: Landmark | undefined,
+): boolean {
+  return visible(shoulder) && visible(elbow) && visible(wrist)
 }
 
 export class PullupCounter {
@@ -70,16 +79,10 @@ export class PullupCounter {
     const lWrist = landmarks[LEFT_WRIST]
     const rWrist = landmarks[RIGHT_WRIST]
 
-    const coreOk =
-      visible(nose) &&
-      visible(lShoulder) &&
-      visible(rShoulder) &&
-      visible(lElbow) &&
-      visible(rElbow) &&
-      visible(lWrist) &&
-      visible(rWrist)
+    const leftOk = armVisible(lShoulder, lElbow, lWrist)
+    const rightOk = armVisible(rShoulder, rElbow, rWrist)
 
-    if (!coreOk) {
+    if (!visible(nose) || (!leftOk && !rightOk)) {
       this.phase = 'lost'
       return {
         phase: 'lost',
@@ -90,15 +93,27 @@ export class PullupCounter {
       }
     }
 
-    const leftAngle = angleDeg(lShoulder!, lElbow!, lWrist!)
-    const rightAngle = angleDeg(rShoulder!, rElbow!, rWrist!)
-    const elbowAngle = (leftAngle + rightAngle) / 2
+    const angles: number[] = []
+    const wrists: Landmark[] = []
+    if (leftOk) {
+      angles.push(angleDeg(lShoulder!, lElbow!, lWrist!))
+      wrists.push(lWrist!)
+    }
+    if (rightOk) {
+      angles.push(angleDeg(rShoulder!, rElbow!, rWrist!))
+      wrists.push(rWrist!)
+    }
 
-    const wristY = (lWrist!.y + rWrist!.y) / 2
+    // Most bent arm for top, most extended for hang — forgives uneven form
+    const bentAngle = Math.min(...angles)
+    const extendedAngle = Math.max(...angles)
+    const elbowAngle = (bentAngle + extendedAngle) / 2
+
+    const wristY = wrists.reduce((sum, w) => sum + w.y, 0) / wrists.length
     const chinOverBar = nose!.y < wristY - CHIN_OVER_MARGIN
 
-    const atTop = chinOverBar && elbowAngle < UP_ELBOW_MAX
-    const atHang = !chinOverBar && elbowAngle > DOWN_ELBOW_MIN
+    const atTop = chinOverBar && bentAngle < UP_ELBOW_MAX
+    const atHang = !chinOverBar && extendedAngle > DOWN_ELBOW_MIN
 
     let justCounted = false
 

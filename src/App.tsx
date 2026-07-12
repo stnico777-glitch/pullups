@@ -3,9 +3,12 @@ import { CameraView } from './components/CameraView'
 import type { PullupPhase } from './lib/pullupCounter'
 import './App.css'
 
+let audioCtx: AudioContext | null = null
+
 function playRepBeep() {
   try {
-    const ctx = new AudioContext()
+    if (!audioCtx) audioCtx = new AudioContext()
+    const ctx = audioCtx
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.type = 'sine'
@@ -34,12 +37,9 @@ export default function App() {
   const [phase, setPhase] = useState<PullupPhase>('hang')
   const [resetSignal, setResetSignal] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [flash, setFlash] = useState(false)
 
   const onJustCounted = useCallback(() => {
     playRepBeep()
-    setFlash(true)
-    window.setTimeout(() => setFlash(false), 280)
   }, [])
 
   if (!started) {
@@ -70,7 +70,7 @@ export default function App() {
   }
 
   return (
-    <div className={`workout ${flash ? 'workout-flash' : ''}`}>
+    <div className="workout">
       <CameraView
         onRepsChange={setReps}
         onPhaseChange={setPhase}
@@ -113,7 +113,7 @@ export default function App() {
         >
           Reset
         </button>
-        <p className="tip">Keep elbows and head in view</p>
+        <p className="tip">Keep your head and at least one arm in view</p>
       </footer>
 
       {error && (

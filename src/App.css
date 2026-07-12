@@ -150,16 +150,6 @@ button {
   background: #050d18;
 }
 
-.workout-flash::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: rgba(61, 255, 154, 0.18);
-  pointer-events: none;
-  z-index: 5;
-  animation: flash-out 0.28s ease-out forwards;
-}
-
 .workout-top,
 .workout-bottom,
 .hud {
@@ -334,20 +324,10 @@ button {
   }
 }
 
-@keyframes flash-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .landing-main,
   .landing-glow,
-  .rep-count,
-  .workout-flash::after {
+  .rep-count {
     animation: none;
   }
 }

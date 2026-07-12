@@ -11,6 +11,7 @@ const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task'
 
 let poseLandmarkerPromise: Promise<PoseLandmarker> | null = null
+const drawingUtilsByCtx = new WeakMap<CanvasRenderingContext2D, DrawingUtils>()
 
 export function getPoseLandmarker(): Promise<PoseLandmarker> {
   if (!poseLandmarkerPromise) {
@@ -40,11 +41,20 @@ export function getPoseLandmarker(): Promise<PoseLandmarker> {
   return poseLandmarkerPromise
 }
 
+function getDrawingUtils(ctx: CanvasRenderingContext2D): DrawingUtils {
+  let utils = drawingUtilsByCtx.get(ctx)
+  if (!utils) {
+    utils = new DrawingUtils(ctx)
+    drawingUtilsByCtx.set(ctx, utils)
+  }
+  return utils
+}
+
 export function drawPose(
   ctx: CanvasRenderingContext2D,
   landmarks: NormalizedLandmark[],
 ): void {
-  const utils = new DrawingUtils(ctx)
+  const utils = getDrawingUtils(ctx)
   utils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
     color: '#3dff9a',
     lineWidth: 3,
