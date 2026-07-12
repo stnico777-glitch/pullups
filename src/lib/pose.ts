@@ -61,7 +61,7 @@ export function drawPose(
   })
   utils.drawLandmarks(landmarks, {
     color: '#ffffff',
-    fillColor: '#0a1628',
+    fillColor: '#000000',
     lineWidth: 1,
     radius: 3,
   })

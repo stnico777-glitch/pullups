@@ -39,6 +39,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
 
   const onJustCounted = useCallback(() => {
+    // Soft beep only — no visual flash/overlay
     playRepBeep()
   }, [])
 
@@ -59,6 +60,13 @@ export default function App() {
             className="cta"
             onClick={() => {
               setError(null)
+              // Warm audio so the first rep beep doesn't stall the camera
+              try {
+                if (!audioCtx) audioCtx = new AudioContext()
+                void audioCtx.resume()
+              } catch {
+                // audio optional
+              }
               setStarted(true)
             }}
           >

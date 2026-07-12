@@ -27,13 +27,13 @@ export function CameraView({
   const rafRef = useRef(0)
   const lastVideoTimeRef = useRef(-1)
   const lastDetectAtRef = useRef(0)
+  const lastPoseRef = useRef<NormalizedLandmark[] | null>(null)
   const lastRepsRef = useRef(-1)
   const lastPhaseRef = useRef<PullupPhase | null>(null)
   const [ready, setReady] = useState(false)
 
-  const handleFrame = useEffectEvent(
-    (landmarks: NormalizedLandmark[], ctx: CanvasRenderingContext2D) => {
-      drawPose(ctx, landmarks)
+  const applyResult = useEffectEvent(
+    (landmarks: NormalizedLandmark[]) => {
       const result = counterRef.current.update(landmarks)
 
       if (result.reps !== lastRepsRef.current) {
@@ -94,7 +94,8 @@ export function CameraView({
         await video.play()
         setReady(true)
 
-        const ctx = canvas.getContext('2d', { alpha: true })
+        // Opaque canvas so the navy page background never shows through
+        const ctx = canvas.getContext('2d', { alpha: false })
         if (!ctx) return
 
         const loop = () => {
@@ -110,19 +111,24 @@ export function CameraView({
             canvas.height = h
           }
 
-          if (video.currentTime === lastVideoTimeRef.current) return
-          lastVideoTimeRef.current = video.currentTime
+          // Always paint the camera frame first — never leave a blank/blue screen
+          ctx.drawImage(video, 0, 0, w, h)
+          if (lastPoseRef.current) {
+            drawPose(ctx, lastPoseRef.current)
+          }
 
           const now = performance.now()
           if (now - lastDetectAtRef.current < DETECT_INTERVAL_MS) return
+          if (video.currentTime === lastVideoTimeRef.current) return
+          lastVideoTimeRef.current = video.currentTime
           lastDetectAtRef.current = now
 
           const result = landmarker.detectForVideo(video, now)
-          ctx.clearRect(0, 0, w, h)
+          const pose = result.landmarks[0] ?? null
+          lastPoseRef.current = pose
 
-          const pose = result.landmarks[0]
           if (pose) {
-            handleFrame(pose, ctx)
+            applyResult(pose)
           } else {
             setPhaseIfChanged('lost')
           }
@@ -143,7 +149,7 @@ export function CameraView({
       cancelAnimationFrame(rafRef.current)
       stream?.getTracks().forEach((t) => t.stop())
     }
-  }, [handleFrame, onError, setPhaseIfChanged])
+  }, [applyResult, onError, setPhaseIfChanged])
 
   return (
     <div className="camera-stage">
