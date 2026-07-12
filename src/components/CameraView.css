@@ -15,13 +15,14 @@
   transform: scaleX(-1);
 }
 
-/* Video is MediaPipe source only — canvas is the visible feed */
+/* Browser composites the live feed even if JS is busy */
 .camera-video {
-  opacity: 0;
-  pointer-events: none;
+  z-index: 0;
+  background: #000;
 }
 
 .camera-overlay {
+  z-index: 1;
   pointer-events: none;
 }
 
