@@ -111,6 +111,40 @@ button {
   color: var(--muted);
 }
 
+.landing-progress {
+  width: min(100%, 22rem);
+  margin: -0.5rem auto 1.75rem;
+  text-align: left;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.progress-track {
+  height: 0.55rem;
+  border-radius: 999px;
+  background: rgba(238, 244, 255, 0.12);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2bd67f, var(--accent));
+  transition: transform 0.28s ease-out;
+}
+
 .cta {
   display: inline-flex;
   align-items: center;
@@ -237,6 +271,11 @@ button {
   letter-spacing: 0.02em;
   color: var(--ink);
   animation: count-pop 0.28s ease-out;
+}
+
+.progress-wrap {
+  width: min(72vw, 16rem);
+  margin-top: 0.65rem;
 }
 
 .phase-pill {

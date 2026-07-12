@@ -3,7 +3,28 @@ import { CameraView } from './components/CameraView'
 import type { PullupPhase } from './lib/pullupCounter'
 import './App.css'
 
+const CHALLENGE_GOAL = 1000
+const STORAGE_KEY = 'pullups-challenge-total'
+
 let audioCtx: AudioContext | null = null
+
+function loadTotal(): number {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    const n = raw ? Number(raw) : 0
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), CHALLENGE_GOAL) : 0
+  } catch {
+    return 0
+  }
+}
+
+function saveTotal(n: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, String(n))
+  } catch {
+    // storage optional
+  }
+}
 
 function playRepBeep() {
   try {
@@ -33,14 +54,21 @@ function phaseLabel(phase: PullupPhase): string {
 
 export default function App() {
   const [started, setStarted] = useState(false)
-  const [reps, setReps] = useState(0)
+  const [reps, setReps] = useState(loadTotal)
   const [phase, setPhase] = useState<PullupPhase>('hang')
   const [resetSignal, setResetSignal] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
+  const progress = Math.min(reps / CHALLENGE_GOAL, 1)
+  const remaining = Math.max(CHALLENGE_GOAL - reps, 0)
+
   const onJustCounted = useCallback(() => {
-    // Soft beep only — no visual flash/overlay
     playRepBeep()
+    setReps((n) => {
+      const next = Math.min(n + 1, CHALLENGE_GOAL)
+      saveTotal(next)
+      return next
+    })
   }, [])
 
   if (!started) {
@@ -50,17 +78,32 @@ export default function App() {
         <div className="landing-grid" aria-hidden />
         <main className="landing-main">
           <p className="brand">PULLUPS</p>
-          <h1 className="tagline">Camera counts your reps.</h1>
+          <h1 className="tagline">1,000 pull-up challenge.</h1>
           <p className="support">
             Prop your phone so your full body and the bar are visible. Pose
             tracking runs on your device — video never leaves the browser.
           </p>
+          {reps > 0 && (
+            <div className="landing-progress" aria-label={`${reps} of ${CHALLENGE_GOAL}`}>
+              <div className="progress-meta">
+                <span>
+                  {reps.toLocaleString()} / {CHALLENGE_GOAL.toLocaleString()}
+                </span>
+                <span>{Math.round(progress * 100)}%</span>
+              </div>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{ transform: `scaleX(${progress})` }}
+                />
+              </div>
+            </div>
+          )}
           <button
             type="button"
             className="cta"
             onClick={() => {
               setError(null)
-              // Warm audio so the first rep beep doesn't stall the camera
               try {
                 if (!audioCtx) audioCtx = new AudioContext()
                 void audioCtx.resume()
@@ -70,7 +113,7 @@ export default function App() {
               setStarted(true)
             }}
           >
-            Start
+            {reps > 0 ? 'Continue' : 'Start'}
           </button>
         </main>
       </div>
@@ -80,7 +123,9 @@ export default function App() {
   return (
     <div className="workout">
       <CameraView
-        onRepsChange={setReps}
+        onRepsChange={() => {
+          // Challenge total is owned by App + localStorage; ignore session counter absolute value
+        }}
         onPhaseChange={setPhase}
         onJustCounted={onJustCounted}
         resetSignal={resetSignal}
@@ -94,7 +139,6 @@ export default function App() {
           className="ghost-btn"
           onClick={() => {
             setStarted(false)
-            setReps(0)
             setPhase('hang')
             setError(null)
           }}
@@ -105,10 +149,29 @@ export default function App() {
 
       <div className="hud">
         <div className="rep-block">
-          <span className="rep-label">Reps</span>
+          <span className="rep-label">Challenge</span>
           <span className="rep-count" key={reps}>
             {reps}
           </span>
+          <div
+            className="progress-wrap"
+            aria-label={`${reps} of ${CHALLENGE_GOAL} pull-ups`}
+          >
+            <div className="progress-meta">
+              <span>
+                {reps.toLocaleString()} / {CHALLENGE_GOAL.toLocaleString()}
+              </span>
+              <span>
+                {remaining === 0 ? 'Done' : `${remaining.toLocaleString()} left`}
+              </span>
+            </div>
+            <div className="progress-track">
+              <div
+                className="progress-fill"
+                style={{ transform: `scaleX(${progress})` }}
+              />
+            </div>
+          </div>
         </div>
         <div className={`phase-pill phase-${phase}`}>{phaseLabel(phase)}</div>
       </div>
@@ -117,7 +180,11 @@ export default function App() {
         <button
           type="button"
           className="ghost-btn"
-          onClick={() => setResetSignal((n) => n + 1)}
+          onClick={() => {
+            setReps(0)
+            saveTotal(0)
+            setResetSignal((n) => n + 1)
+          }}
         >
           Reset
         </button>
