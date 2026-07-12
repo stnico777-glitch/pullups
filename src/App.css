@@ -235,8 +235,9 @@ button {
 }
 
 .hud {
-  top: 50%;
-  transform: translateY(-52%);
+  top: auto;
+  bottom: max(5.5rem, calc(env(safe-area-inset-bottom) + 4.75rem));
+  transform: none;
   display: flex;
   flex-direction: column;
   align-items: center;
